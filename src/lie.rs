@@ -20,7 +20,7 @@ pub fn exp(w: &Vector3<f64>) -> Matrix3<f64> {
     let theta2 = w.norm_squared();
     let k = hat(w);
 
-    let (a,b) = if theta2 < SMALL_ANGLE + SMALL_ANGLE {
+    let (a,b) = if theta2 < SMALL_ANGLE * SMALL_ANGLE {
         (1.0 - theta2 / 6.0, 0.5 - theta2 / 24.0)
     } else {
         let theta = theta2.sqrt();
@@ -63,6 +63,7 @@ mod tests {
 
 use super::*;
     use approx::assert_relative_eq;
+    use proptest::prelude::*;
 
     #[test]
     fn hat_matches_cross_product() {
@@ -102,5 +103,13 @@ use super::*;
         assert_relative_eq!(r, Matrix3::identity(), epsilon=1e-13);
     }
 
+    proptest! {
+            #[test]
+            fn roundtrip(x in -2.0f64..2.0, y in -2.0f64..2.0, z in -2.0f64..2.0) {
+                let w = Vector3::new(x, y, z);
+                prop_assume!(w.norm() < PI - 1e-6);
+                prop_assert!((log(&exp(&w)) - w).norm() < 1e-9);
+            }
+    }
 
 }
