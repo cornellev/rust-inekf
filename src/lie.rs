@@ -40,7 +40,8 @@ pub fn log(r: &Matrix3<f64>) -> Vector3<f64> {
     let theta = s.atan2(c);
 
     if theta < SMALL_ANGLE {
-        v * (0.5 * theta * theta / 12.0)
+        // theta / (2 sin theta) = 0.5 * (1 + theta^2/6 + ...)
+        v * (0.5 * (1.0 + theta * theta / 6.0))
     } else if theta < PI - 1e-3 {
         v * (theta / (2.0 * s))
     } else {
@@ -52,14 +53,15 @@ pub fn log(r: &Matrix3<f64>) -> Vector3<f64> {
         if axis.dot(&v) < 0.0 {
             axis = -axis;
         }
-        axis * axis
+        axis * theta
     }
 }
 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+
+use super::*;
     use approx::assert_relative_eq;
 
     #[test]
@@ -81,4 +83,24 @@ mod tests {
             assert_relative_eq!(exp(&w), expected, epsilon=1e-12);
         }
     }
+    
+    #[test]
+    fn log_inverts_exp() {
+        for w in [
+            Vector3::new(0.3, -0.4, 0.5),
+            Vector3::new(1e-12, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, PI - 1e-6),
+        ] {
+            assert_relative_eq!(log(&exp(&w)), w, epsilon = 1e-9);
+        }
+    }
+
+    #[test]
+    fn small_angle_is_finite() {
+        let r = exp(&Vector3::new(1e-14, 0.0, 0.0));
+        assert!(r.iter().all(|x| x.is_finite()));
+        assert_relative_eq!(r, Matrix3::identity(), epsilon=1e-13);
+    }
+
+
 }
