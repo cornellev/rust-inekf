@@ -3,7 +3,11 @@
 \newcommand{\hbs}[1]{\hat{\boldsymbol{#1}}}
 \newcommand{\hbf}[1]{\hat{\mathbf{#1}}}
 \newcommand{\dbf}[1]{\dot{\mathbf{#1}}}
-\newcommand{\tbf}[1]{\tilde{\mathbf{#1}}}
+% KaTeX draws \tilde as a literal `~`. mdbook's markdown pass runs after the katex
+% preprocessor, so two tildes in one paragraph get read as strikethrough and <del>
+% is injected into the math. \widetilde is drawn as an SVG path, carrying no `~`.
+\renewcommand{\tilde}[1]{\widetilde{#1}}
+\newcommand{\tbf}[1]{\widetilde{\mathbf{#1}}}
 \newcommand{\bs}[1]{\boldsymbol{#1}}
 \newcommand{\uv}[1]{\hat{\mathbf{#1}}}
 \newcommand{\wbs}[1]{\widehat{\boldsymbol{#1}}}
@@ -23,3 +27,4 @@
 \newcommand{\bsnu}{\boldsymbol{\nu}}
 \newcommand{\bsxi}{\boldsymbol{\xi}}
 \newcommand{\bstau}{\boldsymbol{\tau}}
+\newcommand{\bseta}{\boldsymbol{\eta}}

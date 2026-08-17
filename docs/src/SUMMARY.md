@@ -1,5 +1,4 @@
 # Summary
 
-- [Introduction](./introduction.md)
+- [Framework](./framework.md)
 - [SO(3) Conventions](./so3.md)
-
