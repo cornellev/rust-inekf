@@ -5,5 +5,7 @@ src = "src"
 
 [preprocessor.katex]
 after = ["links"]
+throw-on-error = false
+error-color = "#cc0000"
 
 [output.html]
