@@ -2,6 +2,7 @@ use nalgebra::{Matrix3, Vector3};
 use std::f64::consts::PI;
 
 const SMALL_ANGLE: f64 = 1e-8;
+const TAYLOR_THRESHOLD: f64 = 1e-2;
 
 pub fn hat(w: &Vector3<f64>) -> Matrix3<f64> {
     Matrix3::new(
@@ -55,6 +56,47 @@ pub fn log(r: &Matrix3<f64>) -> Vector3<f64> {
         }
         axis * theta
     }
+}
+
+pub fn left_jacobian(
+    w: &Vector3<f64>
+) -> Matrix3<f64> {
+    let theta2 = w.norm_squared();
+    let k = hat(w);
+
+    let (a, b) = if theta2 < TAYLOR_THRESHOLD * TAYLOR_THRESHOLD {
+(
+        0.5 - theta2 / 24.0,
+            1.0 / 6.0 - theta2 / 120.0 + theta2 * theta2 / 5040.0,
+    )
+    } else {
+        let theta = theta2.sqrt();
+        let half = theta / 2.0;
+        let sinc_half = half.sin() / half;
+        (
+            0.5 * sinc_half * sinc_half,
+            (theta - theta.sin()) / (theta * theta2)
+        )
+    };
+
+    Matrix3::identity() + a * k + b * k * k
+}
+
+pub fn left_jacobian_inv(
+    w: &Vector3<f64>
+) -> Matrix3<f64> {
+    let theta2 = w.norm_squared();
+    let k = hat(w);
+
+    let c = if theta2 < TAYLOR_THRESHOLD * TAYLOR_THRESHOLD {
+        1.0 / 12.0 + theta2 / 720.0 + theta2 * theta2 / 30240.0
+    } else {
+        let theta = theta2.sqrt();
+        let half = theta / 2.0;
+        (1.0 - half * half.cos() / half.sin()) / theta2
+    };
+
+    Matrix3::identity() - 0.5 * k + c * k * k
 }
 
 
@@ -112,4 +154,55 @@ use super::*;
             }
     }
 
+    //Inverse test
+    #[test]
+    fn jacobian_inverse_test() {
+        for w in [
+            Vector3::new(0.4, -0.7, 1.1),
+            Vector3::new(1e-9, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, PI - 1e-6),
+        ] {
+            assert_relative_eq!(
+                left_jacobian(&w) * left_jacobian_inv(&w),
+                Matrix3::identity(),
+                epsilon = 1e-12
+            );
+        }
+    }
+
+    // Test the identity that J_r(\omega) = J_l(-\omega), and that J_r is J_l^\top.
+    #[test]
+    fn right_jacobian_is_transpose() {
+        let w = Vector3::new(0.3, 1.2, -0.5);
+        assert_relative_eq!(left_jacobian(&-w), left_jacobian(&w).transpose(), epsilon=1e-14);
+    }
+
+
+    //Adjoint test for left jacobian and exponential
+    #[test]
+    fn adjoint_relation() {
+        let w = Vector3::new(-0.8, 0.2, 1.4);
+        assert_relative_eq!(
+            exp(&w) * left_jacobian(&w).transpose(),
+            left_jacobian(&w),
+            epsilon = 1e-13
+        );
+    }
+
+    #[test]
+    fn matches_fd() {
+        let w = Vector3::new(0.5, -0.3, 0.9);
+        let eps = 1e-7;
+
+        for i in 0..3 {
+            let mut d = Vector3::zeros();
+            d[i] = eps;
+
+            // Numerical: log of the left-multiplied difference
+            let numeric = log(&(exp(&(w + d)) * exp(&w).transpose())) / eps;
+            let analytic = left_jacobian(&w).column(i).into_owned();
+
+            assert_relative_eq!(numeric, analytic, epsilon = 1e-6);
+        }
+    }
 }
