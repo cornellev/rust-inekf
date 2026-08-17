@@ -1,2 +1,3 @@
 [alias]
 docs = "run -p xtask --release -- docs"
+watch-docs = "run -p xtask --release -- watch"

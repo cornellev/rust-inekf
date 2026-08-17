@@ -7,5 +7,6 @@ src = "src"
 after = ["links"]
 throw-on-error = false
 error-color = "#cc0000"
+macros = "macros.txt"
 
 [output.html]
