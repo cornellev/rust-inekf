@@ -1,0 +1,9 @@
+[book]
+title = "rust-inekf"
+authors = ["Lucas Libshutz"]
+src = "src"
+
+[preprocessor.katex]
+after = ["links"]
+
+[output.html]
