@@ -3,6 +3,7 @@ use std::f64::consts::PI;
 
 const SMALL_ANGLE: f64 = 1e-8;
 const TAYLOR_THRESHOLD: f64 = 1e-2;
+const GAMMA_THRESHOLD: f64 = 1e-1;
 
 pub fn hat(w: &Vector3<f64>) -> Matrix3<f64> {
     Matrix3::new(
@@ -97,6 +98,30 @@ pub fn left_jacobian_inv(
     };
 
     Matrix3::identity() - 0.5 * k + c * k * k
+}
+
+pub fn gamma2(
+    w: &Vector3<f64>
+) -> Matrix3<f64> {
+    let theta2 =w.norm_squared();
+    let k = hat(w);
+
+    let (a, b)= if theta2 < GAMMA_THRESHOLD * GAMMA_THRESHOLD {
+        let theta4 = theta2 * theta2;
+        let theta6 = theta4 * theta2;
+        (
+            1.0 / 6.0 - theta2 / 120.0 + theta4 / 5040.0 - theta6 / 362880.0,
+            1.0 / 24.0 - theta2 / 720.0 + theta4 / 40320.0 - theta6 / 3268800.0,
+        )
+    } else {
+        let theta = theta2.sqrt();
+        (
+            (theta - theta.sin()) / (theta * theta2),
+            (theta2 + 2.0 * theta.cos() - 2.0) / (2.0 * theta2 * theta2),
+        )
+    };
+
+    0.5 * Matrix3::identity() + a * k + b * k * k
 }
 
 
@@ -204,5 +229,46 @@ use super::*;
 
             assert_relative_eq!(numeric, analytic, epsilon = 1e-6);
         }
+    }
+
+    // Gamma_2 function testing
+    #[test]
+    fn gamma_recurrence() {
+        for w in [
+            Vector3::new(0.4, -0.7, 1.1),
+            Vector3::new(1e-9, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, PI - 1e-6),
+            Vector3::new(0.05, -0.06, 0.07) // straddles the GAMMA2_threshold
+        ] {
+            let k = hat(&w);
+            // m = 0; \phi^\wedge \Gamma_1 = \Gamma_0 - I (check existing Jacobian)
+            assert_relative_eq!(
+                k * left_jacobian(&w),
+                exp(&w) - Matrix3::identity(),
+                epsilon = 1e-13
+            );
+            // m= 1; \phi^\wedge Gamma_2 = \Gamma_1 - I
+            assert_relative_eq!(
+                k * gamma2(&w),
+                left_jacobian(&w) - Matrix3::identity(),
+                epsilon = 1e-13
+            );
+        }
+    }
+
+    // also quadrature test, as the null space of \phi^\wedge is the rotation axis,
+    // and there would be no way to know whether or not it failed. this ensures that we have the
+    // right axis.
+    #[test]
+    fn gamma2_matches_quadrature() {
+        let w = Vector3::new(0.4, -0.9, 1.3);
+        let n = 20_000;
+        let mut acc = Matrix3::zeros();
+        for i in 0..n {
+            let s = (i as f64 + 0.5) / n as f64; // midpoint rule, O(h^2)
+            acc += (1.0 - s) * exp(&(s * w));
+        }
+        acc /= n as f64;
+        assert_relative_eq!(gamma2(&w),acc, epsilon=1e-9)
     }
 }

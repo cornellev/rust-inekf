@@ -24,3 +24,6 @@ target
 # Added by cargo
 
 /target
+
+# Local working notes, not part of the repo
+/TODO.md
