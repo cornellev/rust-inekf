@@ -13,14 +13,14 @@ pub fn hat(w: &Vector3<f64>) -> Matrix3<f64> {
     )
 }
 
-pub fn vee(m: &Matrix3<f64>) -> Vector3<f64> {
+pub fn vee(matrix: &Matrix3<f64>) -> Vector3<f64> {
     // The vee operator goes from lie algebra to standard vector space.
-    Vector3::new(m[(2,1)], m[(0,2)], m[(1,0)])
+    Vector3::new(matrix[(2,1)], matrix[(0,2)], matrix[(1,0)])
 }
 
-pub fn exp(w: &Vector3<f64>) -> Matrix3<f64> {
-    let theta2 = w.norm_squared();
-    let k = hat(w);
+pub fn exp(omega: &Vector3<f64>) -> Matrix3<f64> {
+    let theta2 = omega.norm_squared();
+    let k = hat(omega);
 
     let (a,b) = if theta2 < SMALL_ANGLE * SMALL_ANGLE {
         (1.0 - theta2 / 6.0, 0.5 - theta2 / 24.0)
@@ -60,10 +60,10 @@ pub fn log(r: &Matrix3<f64>) -> Vector3<f64> {
 }
 
 pub fn left_jacobian(
-    w: &Vector3<f64>
+    omega: &Vector3<f64>
 ) -> Matrix3<f64> {
-    let theta2 = w.norm_squared();
-    let k = hat(w);
+    let theta2 = omega.norm_squared();
+    let k = hat(omega);
 
     let (a, b) = if theta2 < TAYLOR_THRESHOLD * TAYLOR_THRESHOLD {
 (
@@ -84,10 +84,10 @@ pub fn left_jacobian(
 }
 
 pub fn left_jacobian_inv(
-    w: &Vector3<f64>
+    omega: &Vector3<f64>
 ) -> Matrix3<f64> {
-    let theta2 = w.norm_squared();
-    let k = hat(w);
+    let theta2 = omega.norm_squared();
+    let k = hat(omega);
 
     let c = if theta2 < TAYLOR_THRESHOLD * TAYLOR_THRESHOLD {
         1.0 / 12.0 + theta2 / 720.0 + theta2 * theta2 / 30240.0
@@ -101,13 +101,13 @@ pub fn left_jacobian_inv(
 }
 
 pub fn gamma2(
-    w: &Vector3<f64>
+    phi: &Vector3<f64>
 ) -> Matrix3<f64> {
-    let theta2 =w.norm_squared();
-    let k = hat(w);
+    let theta2 =phi.norm_squared();
+    let theta4 = theta2 * theta2;
+    let k = hat(phi);
 
     let (a, b)= if theta2 < GAMMA_THRESHOLD * GAMMA_THRESHOLD {
-        let theta4 = theta2 * theta2;
         let theta6 = theta4 * theta2;
         (
             1.0 / 6.0 - theta2 / 120.0 + theta4 / 5040.0 - theta6 / 362880.0,
@@ -117,7 +117,7 @@ pub fn gamma2(
         let theta = theta2.sqrt();
         (
             (theta - theta.sin()) / (theta * theta2),
-            (theta2 + 2.0 * theta.cos() - 2.0) / (2.0 * theta2 * theta2),
+            (theta2 + 2.0 * theta.cos() - 2.0) / (2.0 * theta4),
         )
     };
 
