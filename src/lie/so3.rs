@@ -3,7 +3,6 @@ use std::f64::consts::PI;
 use super::coeffs::{SMALL_ANGLE, f1, f2, f3, f4};
 
 const TAYLOR_THRESHOLD: f64 = 1e-2;
-const GAMMA_THRESHOLD: f64 = 1e-1;
 
 pub fn hat(w: &Vector3<f64>) -> Matrix3<f64> {
     Matrix3::new(
@@ -173,7 +172,7 @@ use super::*;
 
     //Adjoint test for left jacobian and exponential
     #[test]
-    fn adjoint_relation() {
+    fn left_right_jacobian_relation() {
         let w = Vector3::new(-0.8, 0.2, 1.4);
         assert_relative_eq!(
             exp(&w) * left_jacobian(&w).transpose(),

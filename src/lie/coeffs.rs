@@ -48,3 +48,26 @@ fn f4_closed(theta2: f64) -> f64 {
     let theta: f64 = theta2.sqrt();
     (theta2 + 2.0 * theta.cos() - 2.0) / (2.0 * theta2 * theta2)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn series_closed_form_agreement() {
+        let mut theta: f64 = 0.05;
+        while theta < 0.20 {
+            let t2: f64 = theta * theta;
+            assert_relative_eq!(f3_series(t2), f3_closed(t2), max_relative = 1e-12);
+            theta *= 1.05;
+        }
+
+        let mut theta = 0.20;
+        while theta < 0.30 {
+            let t2: f64 = theta * theta;
+            assert_relative_eq!(f4_series(t2), f4_closed(t2), max_relative = 1e-11);
+            theta *= 1.05;
+        }
+    }
+}
