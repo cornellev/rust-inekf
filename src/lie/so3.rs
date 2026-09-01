@@ -1,6 +1,6 @@
 use nalgebra::{Matrix3, Vector3};
 use std::f64::consts::PI;
-use super::coeffs::SMALL_ANGLE;
+use super::coeffs::{SMALL_ANGLE, f1, f2, f3, f4};
 
 const TAYLOR_THRESHOLD: f64 = 1e-2;
 const GAMMA_THRESHOLD: f64 = 1e-1;
@@ -21,15 +21,8 @@ pub fn vee(matrix: &Matrix3<f64>) -> Vector3<f64> {
 pub fn exp(omega: &Vector3<f64>) -> Matrix3<f64> {
     let theta2 = omega.norm_squared();
     let k = hat(omega);
-
-    let (a,b) = if theta2 < SMALL_ANGLE * SMALL_ANGLE {
-        (1.0 - theta2 / 6.0, 0.5 - theta2 / 24.0)
-    } else {
-        let theta = theta2.sqrt();
-        let half = theta / 2.0;
-        let sinc_half = half.sin() / half;
-        (theta.sin() / theta, 0.5 * sinc_half * sinc_half)
-    };
+    let a: f64 = f1(theta2);
+    let b: f64 = f2(theta2);
 
     Matrix3::identity() + a * k + b * k * k
 }
@@ -65,20 +58,8 @@ pub fn left_jacobian(
     let theta2 = omega.norm_squared();
     let k = hat(omega);
 
-    let (a, b) = if theta2 < TAYLOR_THRESHOLD * TAYLOR_THRESHOLD {
-(
-        0.5 - theta2 / 24.0,
-            1.0 / 6.0 - theta2 / 120.0 + theta2 * theta2 / 5040.0,
-    )
-    } else {
-        let theta = theta2.sqrt();
-        let half = theta / 2.0;
-        let sinc_half = half.sin() / half;
-        (
-            0.5 * sinc_half * sinc_half,
-            (theta - theta.sin()) / (theta * theta2)
-        )
-    };
+    let a: f64 = f2(theta2);
+    let b: f64 = f3(theta2);
 
     Matrix3::identity() + a * k + b * k * k
 }
@@ -104,22 +85,10 @@ pub fn gamma2(
     phi: &Vector3<f64>
 ) -> Matrix3<f64> {
     let theta2 =phi.norm_squared();
-    let theta4 = theta2 * theta2;
     let k = hat(phi);
 
-    let (a, b)= if theta2 < GAMMA_THRESHOLD * GAMMA_THRESHOLD {
-        let theta6 = theta4 * theta2;
-        (
-            1.0 / 6.0 - theta2 / 120.0 + theta4 / 5040.0 - theta6 / 362880.0,
-            1.0 / 24.0 - theta2 / 720.0 + theta4 / 40320.0 - theta6 / 3628800.0,
-        )
-    } else {
-        let theta = theta2.sqrt();
-        (
-            (theta - theta.sin()) / (theta * theta2),
-            (theta2 + 2.0 * theta.cos() - 2.0) / (2.0 * theta4),
-        )
-    };
+    let a: f64 = f3(theta2);
+    let b: f64 = f4(theta2);
 
     0.5 * Matrix3::identity() + a * k + b * k * k
 }
@@ -133,8 +102,8 @@ use super::*;
 
     #[test]
     fn hat_matches_cross_product() {
-        let w = Vector3::new(0.3, -1.2, 0.7);
-        let v = Vector3::new(2.0, 0.5, -1.1);
+        let w: Vector3<f64> = Vector3::new(0.3, -1.2, 0.7);
+        let v: Vector3<f64> = Vector3::new(2.0, 0.5, -1.1);
         assert_relative_eq!(hat(&w) * v, w.cross(&v),epsilon=1e-12);
     }
 
@@ -146,7 +115,7 @@ use super::*;
             Vector3::new(0.0, 0.0, 3.0),
             Vector3::new(1.5, 1.5, 1.5),
         ] {
-            let expected = *Rotation3::from_scaled_axis(w).matrix();
+            let expected: Matrix3<f64> = *Rotation3::from_scaled_axis(w).matrix();
             assert_relative_eq!(exp(&w), expected, epsilon=1e-12);
         }
     }
@@ -172,7 +141,7 @@ use super::*;
     proptest! {
             #[test]
             fn roundtrip(x in -2.0f64..2.0, y in -2.0f64..2.0, z in -2.0f64..2.0) {
-                let w = Vector3::new(x, y, z);
+                let w: Vector3<f64> = Vector3::new(x, y, z);
                 prop_assume!(w.norm() < PI - 1e-6);
                 prop_assert!((log(&exp(&w)) - w).norm() < 1e-9);
             }
@@ -269,5 +238,19 @@ use super::*;
         }
         acc /= n as f64;
         assert_relative_eq!(gamma2(&w),acc, epsilon=1e-9)
+    }
+
+    // equivariance test, such that \Gamma_2(R*w) == R * \Gamma_2(w) * R^\top
+    #[test]
+    fn gamma2_is_equivariant() {
+        let w = Vector3::new(0.4, -0.9, 1.3);
+        let r  = exp(&Vector3::new(0.7, 0.2, -1.1)); // convert
+        // to rotation matrix
+        assert_relative_eq!(gamma2(&(r * w)), r * gamma2(&w) * r.transpose(), epsilon = 1e-13);
+        assert_relative_eq!(
+            left_jacobian(&(r * w)),
+            r * left_jacobian(&w) * r.transpose(),
+            epsilon = 1e-13
+        )
     }
 }
