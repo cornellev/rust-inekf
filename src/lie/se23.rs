@@ -29,8 +29,8 @@ impl SE23 {
         Self::new(rt, -rt * self.v, -rt * self.p)
     }
 
-    // Transition function from state to lie algebra
-    pub fn to_algebra(&self) -> Matrix5<f64> {
+    // Convert SE23 state to Matrix5 object
+    pub fn to_matrix(&self) -> Matrix5<f64> {
         let mut mat = Matrix5::identity();
         mat.fixed_view_mut::<3, 3>(0,0).copy_from(&self.r);
         mat.fixed_view_mut::<3, 1>(0,3).copy_from(&self.v);
@@ -48,6 +48,14 @@ impl SE23 {
         a
     }
 }
+
+// Be able to print state
+impl std::fmt::Display for SE23 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.to_matrix(), f)
+    }
+}
+
 impl Mul for SE23 {
     type Output = SE23;
 
