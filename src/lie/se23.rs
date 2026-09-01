@@ -121,3 +121,83 @@ pub fn ad(xi: &Vector9) -> Matrix9 {
         .copy_from(&so3::hat(&xi.fixed_rows::<3>(6).into_owned()));
     a
 }
+
+// test suite
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+    use nalgebra::Matrix2;
+    use proptest::prelude::*;
+
+    // -- helper functions --
+    // check matrix exponential against "brute force"
+    fn mexp<const N: usize>(a: &SMatrix<f64, N, N>) -> SMatrix<f64, N, N> {
+        let s = (a.norm().log2().ceil().max(0.0) as i32) * 4;
+        let scaled = a / 2f64.powi(s);
+        let mut term = SMatrix::<f64, N, N>::identity();
+        let mut accumulated = SMatrix::<f64, N, N>::identity();
+        for k in 1..=24 {
+            term = term * scaled / k as f64;
+            accumulated += term;
+        }
+        for _ in 0..s {
+            accumulated = accumulated * accumulated;
+        }
+        accumulated
+    }
+
+    //TODO: this should be random numbers, not just this one, right?
+    fn sample_xi() -> Vector9 {
+        Vector9::from_column_slice(&[0.3, -0.7, 1.1, 2.0, -0.5, 0.8, 1.2, 0.4, 3.0])
+    }
+
+    fn sample_x() -> SE23 {
+        SE23::new(
+            so3::exp(&Vector3::new(0.2, -0.5, 0.9)),
+            Vector3::new(1.0, -0.4, 0.2),
+            Vector3::new(-3.0, 0.5, 12.0),
+        )
+    }
+
+    fn second_sample_x() -> SE23 {
+        SE23::new(
+            so3::exp(&Vector3::new(-1.1, 0.3, 0.6)),
+            Vector3::new(0.7, 2.0,-1.5),
+            Vector3::new(4.0, -2.5, 0.1)
+        )
+    }
+
+
+    // -- actual tests --
+
+    // first: group tests
+    #[test]
+    fn test_exact_inverse() {
+        let x = sample_x();
+        let i = x * x.inverse();
+        assert_relative_eq!(i.r, Matrix3::identity(), epsilon=1e-15);
+    }
+
+    #[test]
+    fn compose_matches_expected() {
+        let (a,b) = (sample_x(), second_sample_x());
+        assert_relative_eq!(
+            (a * b).to_matrix(),
+            a.to_matrix() * b.to_matrix(),
+            epsilon = 1e-13
+        );
+    }
+
+    //NOTE: why 0.0? Why does that make sense?
+    #[test]
+    fn to_matrix_correct_shape() {
+        let m = sample_x().to_matrix();
+        for i in 3..5 {
+            for j in 0..3 {
+                assert_eq!(m[(i, j)], 0.0);
+            }
+        }
+        assert_relative_eq!(m.fixed_view::<2,2>(3,3).into_owned(), Matrix2::identity());
+    }
+}
