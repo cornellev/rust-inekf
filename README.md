@@ -2,14 +2,15 @@
 An Invariant Extended Kalman Filter, written in Rust, for our cars.
 
 ## Package Structure
-```
+```bash
 .
+├── Cargo.lock
 ├── Cargo.toml
-├── docs
 ├── LICENSE
 ├── README.md
-└── src
-    ├── lib.rs
-    ├── lie.rs
-    └── main.rs
+├── src
+│   ├── lib.rs
+│   ├── lie
+│   ├── lie.rs
+└── └── main.rs
 ```
