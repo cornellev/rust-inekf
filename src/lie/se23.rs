@@ -129,6 +129,7 @@ mod tests {
     use approx::assert_relative_eq;
     use nalgebra::Matrix2;
     use proptest::prelude::*;
+    use std::f64::consts::PI;
 
     // -- helper functions --
     // check matrix exponential against "brute force"
@@ -175,8 +176,17 @@ mod tests {
     #[test]
     fn test_exact_inverse() {
         let x = sample_x();
-        let i = x * x.inverse();
-        assert_relative_eq!(i.r, Matrix3::identity(), epsilon=1e-15);
+        assert_relative_eq!(
+            (x * x.inverse()).to_matrix(),
+            Matrix5::identity(), 
+            epsilon=1e-14
+        );
+
+        assert_relative_eq!(
+            (x.inverse() * x).to_matrix(),
+            Matrix5::identity(),
+            epsilon=1e-14
+        );
     }
 
     #[test]
@@ -199,5 +209,108 @@ mod tests {
             }
         }
         assert_relative_eq!(m.fixed_view::<2,2>(3,3).into_owned(), Matrix2::identity());
+    }
+
+    #[test]
+    fn log_inverts_exp() {
+        for xi in [
+            //TODO: add RNG
+            sample_xi(),
+            2.0 * sample_xi()
+        ] {
+            assert_relative_eq!(log(&exp(&xi)), xi, epsilon=1e-9);
+        }
+    }
+
+    #[test]
+    fn exp_inverts_log() {
+        for x in [
+            sample_x(),
+            second_sample_x(),
+            SE23::identity()
+        ] {
+            assert_relative_eq!(
+                exp(&log(&x)).to_matrix(),
+                x.to_matrix(),
+                epsilon=1e-12
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn log_exp_roundtrip(c in prop::array::uniform9(-1.5f64..1.5)) {
+            let xi = Vector9::from_column_slice(&c);
+            prop_assume!(xi.fixed_rows::<3>(0).norm() < PI - 1e-6);
+        }
+    }
+
+    // lie algebra tests
+    #[test]
+    fn hat_vee_roundtrip() {
+        let xi = sample_xi();
+        assert_relative_eq!(vee(&hat(&xi)), xi, epsilon=1e-15);
+    }
+
+    #[test]
+    fn hat_has_zero_bottom_block() {
+        let h = hat(&sample_xi());
+        assert_relative_eq!(
+            h.fixed_view::<2,5>(3,0).into_owned(),
+            SMatrix::<f64, 2,5>::zeros()
+        );
+    }
+
+    #[test]
+    fn exp_matches_mexp() {
+        for xi in [
+            //TODO: add more Vector9 objects via random numbers
+            sample_xi(),
+            Vector9::zeros()
+        ] {
+            assert_relative_eq!(
+                exp(&xi).to_matrix(),
+                mexp(&hat(&xi)),
+                epsilon=1e-12
+            );
+        }
+    }
+
+    // adjoint test
+    #[test]
+    fn ad_matches_commutation() {
+        let xi = sample_xi();
+        let eta = Vector9::from_column_slice(&[-0.6, 1.3, 0.2, 0.9, -1.7, 0.4, 2.2, 0.1, -0.8]);
+
+        let bracket = hat(&xi) * hat(&eta) - hat(&eta) * hat(&xi);
+        assert_relative_eq!(
+            hat(&(ad(&xi) * eta)),
+            bracket,
+            epsilon = 1e-13
+        );
+    }
+
+    // check homomorphism identities for adjoint
+    #[test]
+    fn adjoint_is_homomorphism() {
+        let (a,b) = (sample_x(), second_sample_x());
+
+        assert_relative_eq!(
+            (a * b).adjoint(),
+            a.adjoint() * b.adjoint(),
+            epsilon=1e-12
+        );
+
+        assert_relative_eq!(
+            a.inverse().adjoint(),
+            a.adjoint().try_inverse().unwrap(),
+            epsilon=1e-12
+        );
+
+        assert_relative_eq!(
+            SE23::identity().adjoint(),
+            Matrix9::identity(),
+            epsilon=1e-15
+        );
     }
 }
