@@ -122,6 +122,7 @@ pub fn ad(xi: &Vector9) -> Matrix9 {
     a
 }
 
+// ------------------------------------
 // test suite
 #[cfg(test)]
 mod tests {
@@ -134,7 +135,7 @@ mod tests {
     // -- helper functions --
     // check matrix exponential against "brute force"
     fn mexp<const N: usize>(a: &SMatrix<f64, N, N>) -> SMatrix<f64, N, N> {
-        let s = (a.norm().log2().ceil().max(0.0) as i32) * 4;
+        let s = (a.norm().log2().ceil().max(0.0) as i32) + 1;
         let scaled = a / 2f64.powi(s);
         let mut term = SMatrix::<f64, N, N>::identity();
         let mut accumulated = SMatrix::<f64, N, N>::identity();
@@ -148,169 +149,181 @@ mod tests {
         accumulated
     }
 
-    //TODO: this should be random numbers, not just this one, right?
-    fn sample_xi() -> Vector9 {
-        Vector9::from_column_slice(&[0.3, -0.7, 1.1, 2.0, -0.5, 0.8, 1.2, 0.4, 3.0])
+    // Algebra element: rotation angle drawn from `angles`,
+    // translations uniform in [-5,5].
+    fn xi_in(angles: impl Strategy<Value = f64>) -> impl Strategy<Value = Vector9> {
+        (
+            prop::array::uniform3(-1.0f64..1.0),
+            angles,
+            prop::array::uniform6(-5.0f64..5.0)
+        ).prop_map(|(axis, angle, t)| {
+            let a = Vector3::from_column_slice(&axis);
+            let phi = if a.norm() > 1e-12 {
+                a.normalize() * angle
+            } else {
+                Vector3::zeros()
+            };
+            let mut xi = Vector9::zeros();
+            xi.fixed_rows_mut::<3>(0).copy_from(&phi);
+            for i in 0..6 {
+                xi[3 + i] = t[i];
+            }
+            xi
+        })
     }
 
-    fn sample_x() -> SE23 {
-        SE23::new(
-            so3::exp(&Vector3::new(0.2, -0.5, 0.9)),
-            Vector3::new(1.0, -0.4, 0.2),
-            Vector3::new(-3.0, 0.5, 12.0),
-        )
+    // ||phi|| < pi; required wherever log is involved
+    fn any_xi() -> impl Strategy<Value = Vector9> {
+        xi_in(0.0f64..PI - 1e-6)
     }
 
-    fn second_sample_x() -> SE23 {
-        SE23::new(
-            so3::exp(&Vector3::new(-1.1, 0.3, 0.6)),
-            Vector3::new(0.7, 2.0,-1.5),
-            Vector3::new(4.0, -2.5, 0.1)
-        )
+    // unrestricted angle; only for exp / Ad, which are entire
+    fn wide_xi() -> impl Strategy<Value = Vector9> {
+        xi_in(0.0f64..6.0)
+    }
+
+    // Group element without SE23::exp
+    fn any_x() -> impl Strategy<Value = SE23> {
+        any_xi().prop_map(|xi| {
+            SE23::new(
+                so3::exp(&xi.fixed_rows::<3>(0).into_owned()),
+                Vector3::new(xi[3],xi[4],xi[5]),
+                Vector3::new(xi[6],xi[7],xi[8]),
+            )
+        })
     }
 
 
     // -- actual tests --
 
-    // first: group tests
     #[test]
-    fn test_exact_inverse() {
-        let x = sample_x();
+    fn adjoint_of_identity() {
         assert_relative_eq!(
-            (x * x.inverse()).to_matrix(),
-            Matrix5::identity(), 
-            epsilon=1e-14
+            SE23::identity().adjoint(),
+            Matrix9::identity(),
+            epsilon=1e-15
         );
-
-        assert_relative_eq!(
-            (x.inverse() * x).to_matrix(),
-            Matrix5::identity(),
-            epsilon=1e-14
-        );
-    }
-
-    #[test]
-    fn compose_matches_expected() {
-        let (a,b) = (sample_x(), second_sample_x());
-        assert_relative_eq!(
-            (a * b).to_matrix(),
-            a.to_matrix() * b.to_matrix(),
-            epsilon = 1e-13
-        );
-    }
-
-    //NOTE: why 0.0? Why does that make sense?
-    #[test]
-    fn to_matrix_correct_shape() {
-        let m = sample_x().to_matrix();
-        for i in 3..5 {
-            for j in 0..3 {
-                assert_eq!(m[(i, j)], 0.0);
-            }
-        }
-        assert_relative_eq!(m.fixed_view::<2,2>(3,3).into_owned(), Matrix2::identity());
-    }
-
-    #[test]
-    fn log_inverts_exp() {
-        for xi in [
-            //TODO: add RNG
-            sample_xi(),
-            2.0 * sample_xi()
-        ] {
-            assert_relative_eq!(log(&exp(&xi)), xi, epsilon=1e-9);
-        }
-    }
-
-    #[test]
-    fn exp_inverts_log() {
-        for x in [
-            sample_x(),
-            second_sample_x(),
-            SE23::identity()
-        ] {
-            assert_relative_eq!(
-                exp(&log(&x)).to_matrix(),
-                x.to_matrix(),
-                epsilon=1e-12
-            );
-        }
     }
 
     proptest! {
+        // group tests
         #[test]
-        fn log_exp_roundtrip(c in prop::array::uniform9(-1.5f64..1.5)) {
-            let xi = Vector9::from_column_slice(&c);
-            prop_assume!(xi.fixed_rows::<3>(0).norm() < PI - 1e-6);
+        fn test_exact_inverse(x in any_x()) {
+            assert_relative_eq!(
+                (x * x.inverse()).to_matrix(),
+                Matrix5::identity(),
+                epsilon=1e-13
+            );
+
+            assert_relative_eq!(
+                (x.inverse() * x).to_matrix(),
+                Matrix5::identity(),
+                epsilon=1e-13
+            );
         }
-    }
 
-    // lie algebra tests
-    #[test]
-    fn hat_vee_roundtrip() {
-        let xi = sample_xi();
-        assert_relative_eq!(vee(&hat(&xi)), xi, epsilon=1e-15);
-    }
+        #[test]
+        fn compose_matches_expected(a in any_x(), b in any_x()) {
+            assert_relative_eq!(
+                (a * b).to_matrix(),
+                a.to_matrix() * b.to_matrix(),
+                epsilon = 1e-13
+            );
+        }
 
-    #[test]
-    fn hat_has_zero_bottom_block() {
-        let h = hat(&sample_xi());
-        assert_relative_eq!(
-            h.fixed_view::<2,5>(3,0).into_owned(),
-            SMatrix::<f64, 2,5>::zeros()
-        );
-    }
+        //NOTE: why 0.0? Why does that make sense?
+        #[test]
+        fn to_matrix_correct_shape(x in any_x()) {
+            let m = x.to_matrix();
+            for i in 3..5 {
+                for j in 0..3 {
+                    assert_eq!(m[(i, j)], 0.0);
+                }
+            }
+            assert_relative_eq!(m.fixed_view::<2,2>(3,3).into_owned(), Matrix2::identity());
+        }
 
-    #[test]
-    fn exp_matches_mexp() {
-        for xi in [
-            //TODO: add more Vector9 objects via random numbers
-            sample_xi(),
-            Vector9::zeros()
-        ] {
+        #[test]
+        fn log_inverts_exp(xi in any_xi()) {
+            assert_relative_eq!(log(&exp(&xi)), xi, epsilon=1e-8);
+        }
+
+        #[test]
+        fn exp_inverts_log(x in any_x()) {
+            assert_relative_eq!(
+                exp(&log(&x)).to_matrix(),
+                x.to_matrix(),
+                epsilon=1e-11
+            );
+        }
+
+        // lie algebra tests
+        #[test]
+        fn hat_vee_roundtrip(xi in wide_xi()) {
+            assert_relative_eq!(vee(&hat(&xi)), xi, epsilon=1e-15);
+        }
+
+        #[test]
+        fn hat_has_zero_bottom_block(xi in wide_xi()) {
+            assert_relative_eq!(
+                hat(&xi).fixed_view::<2,5>(3,0).into_owned(),
+                SMatrix::<f64, 2,5>::zeros()
+            );
+        }
+
+        #[test]
+        fn exp_matches_mexp(xi in wide_xi()) {
             assert_relative_eq!(
                 exp(&xi).to_matrix(),
                 mexp(&hat(&xi)),
                 epsilon=1e-12
             );
         }
-    }
 
-    // adjoint test
-    #[test]
-    fn ad_matches_commutation() {
-        let xi = sample_xi();
-        let eta = Vector9::from_column_slice(&[-0.6, 1.3, 0.2, 0.9, -1.7, 0.4, 2.2, 0.1, -0.8]);
+        // adjoint tests
+        #[test]
+        fn ad_matches_commutation(xi in wide_xi(), eta in wide_xi()) {
+            let bracket = hat(&xi) * hat(&eta) - hat(&eta) * hat(&xi);
+            assert_relative_eq!(
+                hat(&(ad(&xi) * eta)),
+                bracket,
+                epsilon = 1e-12
+            );
+        }
 
-        let bracket = hat(&xi) * hat(&eta) - hat(&eta) * hat(&xi);
-        assert_relative_eq!(
-            hat(&(ad(&xi) * eta)),
-            bracket,
-            epsilon = 1e-13
-        );
-    }
+        #[test]
+        fn adjoint_is_homomorphism(a in any_x(), b in any_x()) {
+            assert_relative_eq!(
+                (a * b).adjoint(),
+                a.adjoint() * b.adjoint(),
+                epsilon=1e-11
+            );
 
-    // check homomorphism identities for adjoint
-    #[test]
-    fn adjoint_is_homomorphism() {
-        let (a,b) = (sample_x(), second_sample_x());
+            assert_relative_eq!(
+                a.inverse().adjoint(),
+                a.adjoint().try_inverse().unwrap(),
+                epsilon=1e-11
+            );
+        }
 
-        assert_relative_eq!(
-            (a * b).adjoint(),
-            a.adjoint() * b.adjoint(),
-            epsilon=1e-12
-        );
+        #[test]
+        fn adjoint_exp_is_exp_ad(xi in wide_xi()) {
+            assert_relative_eq!(
+                exp(&xi).adjoint(),
+                mexp(&ad(&xi)),
+                epsilon=1e-11
+            );
+        }
 
-        assert_relative_eq!(
-            a.inverse().adjoint(),
-            a.adjoint().try_inverse().unwrap(),
-            epsilon=1e-12
-        );
-
-        assert_relative_eq!(
-            SE23::identity().adjoint(),
-            Matrix9::identity(),
-            epsilon=1e-15
-        );
+        #[test]
+        fn conjugation_matches_adjoint(x in any_x(), xi in any_xi()) {
+            let lhs = x * exp(&xi) * x.inverse();
+            let rhs = exp(&(x.adjoint() * xi));
+            assert_relative_eq!(
+                lhs.to_matrix(),
+                rhs.to_matrix(),
+                epsilon=1e-10
+            );
+        }
     }
 }

@@ -23,4 +23,8 @@ fn main() {
 
     println!("State:{:.2}",state);
 
+    // Try the inverse of this state
+    let inverse_state: SE23 = state.inverse();
+    println!("Inverse state:{:.2}",inverse_state);
+
 }
