@@ -7,7 +7,7 @@ use super::so3;
 pub type Vector9 = SVector<f64, 9>;
 pub type Matrix9 = SMatrix<f64, 9, 9>;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct SE23 {
     pub r: Matrix3<f64>,
     pub v: Vector3<f64>,
@@ -125,7 +125,7 @@ pub fn ad(xi: &Vector9) -> Matrix9 {
 // ------------------------------------
 // test suite
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use approx::assert_relative_eq;
     use nalgebra::Matrix2;
@@ -134,7 +134,7 @@ mod tests {
 
     // -- helper functions --
     // check matrix exponential against "brute force"
-    fn mexp<const N: usize>(a: &SMatrix<f64, N, N>) -> SMatrix<f64, N, N> {
+    pub(crate) fn mexp<const N: usize>(a: &SMatrix<f64, N, N>) -> SMatrix<f64, N, N> {
         let s = (a.norm().log2().ceil().max(0.0) as i32) + 1;
         let scaled = a / 2f64.powi(s);
         let mut term = SMatrix::<f64, N, N>::identity();
@@ -183,7 +183,7 @@ mod tests {
     }
 
     // Group element without SE23::exp
-    fn any_x() -> impl Strategy<Value = SE23> {
+    pub(crate) fn any_x() -> impl Strategy<Value = SE23> {
         any_xi().prop_map(|xi| {
             SE23::new(
                 so3::exp(&xi.fixed_rows::<3>(0).into_owned()),

@@ -1,8 +1,11 @@
 use nalgebra::{Vector3, Matrix3, Rotation3};
 use rust_inekf::lie::se23::SE23;
 use std::f64::consts::PI;
+use rust_inekf::lie::se23::{vee};
+use std::time::Instant;
 
 fn main() {
+    let start = Instant::now();
     let axis = Vector3::x_axis();
     let rot_mat: Matrix3<f64> = Rotation3::from_axis_angle(&axis, PI/2.0).into_inner();
 
@@ -24,7 +27,10 @@ fn main() {
     println!("State:{:.2}",state);
 
     // Try the inverse of this state
-    let inverse_state: SE23 = state.inverse();
-    println!("Inverse state:{:.2}",inverse_state);
+    let inverse_vector = vee(&state.inverse().to_matrix());
+    println!("Inverse state:{:.2}",inverse_vector);
+
+    let duration = start.elapsed();
+    println!("Time elapsed: {:?}", duration);
 
 }
