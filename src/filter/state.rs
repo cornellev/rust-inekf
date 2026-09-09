@@ -26,3 +26,36 @@ impl CarState {
         Cholesky::new(self.cov).is_some()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::Vector3;
+    // use proptest::prelude::*;
+
+    fn any_pose() -> SE23 { SE23::identity()}
+
+    #[test]
+    fn from_sigmas_diagonal_check() {
+        let s = CarState::from_sigmas(
+            any_pose(),
+    Vector3::new(1e-2,2e-2,3e-2),
+    Vector3::new(0.1, 0.2, 0.3),
+    Vector3::new(1.0,2.0,3.0)
+        );
+        let expected = [1e-2, 2e-2, 3e-2, 0.1, 0.2, 0.3, 1.0, 2.0, 3.0];
+        for (i, sig) in expected.iter().enumerate() {
+            assert_eq!(s.cov[(i,i)], sig * sig, "diagonal {i}");
+        }
+
+        // also check the matrix is diagonal
+        for i in 0..9 {
+            for j in 0..9 {
+                if i !=j {
+                    assert_eq!(s.cov[(i,j)], 0.0, "off-diagonal ({i},{j})");
+                }
+            }
+        }
+    }
+
+}
