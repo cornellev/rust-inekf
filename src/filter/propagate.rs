@@ -16,54 +16,51 @@ impl ProcessNoise{
     fn continuous(&self) -> Matrix9 {
         let mut q_cont = Matrix9::zeros();
         let sigma_gyro = Matrix3::identity() * self.sigma_gyro.powi(2);
-        let sigma_accel = Matrix3::identity() * self.sigma_gyro.powi(2);
+        let sigma_accel = Matrix3::identity() * self.sigma_accel.powi(2);
         q_cont.fixed_view_mut::<3,3>(0,0).copy_from(&sigma_gyro);
         q_cont.fixed_view_mut::<3,3>(3,3).copy_from(&sigma_accel);
         q_cont
     }
 }
 
-struct Gammas {
-    g0: Matrix3<f64>,
-    g1: Matrix3<f64>,
-    g2: Matrix3<f64>,
+pub struct Increments {
+    pub g0: Matrix3<f64>,
+    pub dv: Vector3<f64>,
+    pub dp: Vector3<f64>,
+    pub dt: f64
 }
 
-fn gammas(phi: &Vector3<f64>) -> Gammas {
-    Gammas {
-        g0: so3::exp(phi),
-        g1: so3::left_jacobian(phi),
-        g2: so3::gamma2(phi)
+impl Increments {
+    pub fn new(imu: &IMU, dt: f64) -> Self {
+        let phi = imu.gyro * dt;
+        Self {
+            g0: so3::exp(&phi),
+            dv: so3::left_jacobian(&phi) * imu.accel * dt,
+            dp: so3::gamma2(&phi) * imu.accel * dt.powi(2),
+            dt,
+        }
     }
 }
 
-pub fn propagate_mean(x: &SE23, imu: &IMU, dt: f64) -> SE23 {
-    let phi = imu.gyro * dt;
-    let g = gammas(&phi);
 
+pub fn propagate_mean(x: &SE23, inc: &Increments) -> SE23 {
     SE23::new(
-        x.r * g.g0,
-        x.v + GRAVITY_VECTOR * dt + x.r * (g.g1 * imu.accel) * dt,
-        x.p + x.v * dt + 0.5 * GRAVITY_VECTOR * dt.powi(2) + x.r * (g.g2 * imu.accel) * dt.powi(2)
+        x.r * inc.g0,
+        x.v + GRAVITY_VECTOR * inc.dt + x.r * inc.dv,
+        x.p + x.v * inc.dt + 0.5 * GRAVITY_VECTOR * inc.dt.powi(2) + x.r * inc.dp,
     )
 }
 
-pub fn transition_matrix(imu: &IMU, dt:f64) -> Matrix9 {
-    let phi = imu.gyro * dt;
-    let g = gammas(&phi);
-    let g0t = g.g0.transpose();
-
-    // Body frame velocity & accel
-    let body_vel = g.g1 * imu.accel * dt;
-    let body_pos = g.g2 * imu.accel * dt.powi(2);
+pub fn transition_matrix(inc: &Increments) -> Matrix9 {
+    let g0t = inc.g0.transpose();
 
     let mut f = Matrix9::zeros();
     f.fixed_view_mut::<3,3>(0,0).copy_from(&g0t);
     f.fixed_view_mut::<3,3>(3,3).copy_from(&g0t);
     f.fixed_view_mut::<3,3>(6,6).copy_from(&g0t);
-    f.fixed_view_mut::<3,3>(3,0).copy_from(&(-g0t * so3::hat(&body_vel)));
-    f.fixed_view_mut::<3,3>(6,0).copy_from(&(-g0t * so3::hat(&body_pos)));
-    f.fixed_view_mut::<3,3>(6,3).copy_from(&(g0t * dt));
+    f.fixed_view_mut::<3,3>(3,0).copy_from(&(-g0t * so3::hat(&inc.dv)));
+    f.fixed_view_mut::<3,3>(6,0).copy_from(&(-g0t * so3::hat(&inc.dp)));
+    f.fixed_view_mut::<3,3>(6,3).copy_from(&(g0t * inc.dt));
     f
 }
 
@@ -73,8 +70,9 @@ fn discrete_noise(phi_mat: &Matrix9, noise: &ProcessNoise, dt: f64) -> Matrix9 {
 
 impl CarState {
     pub fn propagate(&mut self, imu: &IMU, noise: &ProcessNoise, dt:f64) {
-        let f = transition_matrix(imu, dt);
-        self.x = propagate_mean(&self.x, imu, dt);
+        let inc = Increments::new(imu, dt);
+        let f = transition_matrix(&inc);
+        self.x = propagate_mean(&self.x, &inc);
         self.cov = f * self.cov * f.transpose() + discrete_noise(&f, noise, dt);
         self.symmetrize();
     }
@@ -102,10 +100,13 @@ mod test {
         ] {
             let imu = IMU { gyro, accel };
             let dt = 0.06;
-            let one = propagate_mean(&x0, &imu, dt);
+            let scale: f64 = 64.0;
+            let inc = Increments::new(&imu, dt);
+            let many_inc = Increments::new(&imu, dt / scale);
+            let one = propagate_mean(&x0,&inc);
             let mut many = x0;
             for _ in 0..64 {
-                many = propagate_mean(&many, &imu, dt / 64.0);
+                many = propagate_mean(&many, &many_inc);
             }
             assert_relative_eq!(
                 one.to_matrix(), many.to_matrix(), epsilon=1e-10
