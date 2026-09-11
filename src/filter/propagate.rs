@@ -4,8 +4,6 @@ use crate::lie::so3;
 use super::sensors::IMU;
 use nalgebra::{Matrix3, Vector3};
 
-//NOTE: gamma computed multiple times, should only be done once via data structure and passed down.
-
 pub struct ProcessNoise {
     pub sigma_gyro: f64, // rad/s/sqrt(Hz)
     pub sigma_accel: f64, // (m/s^2)/sqrt(Hz)
@@ -23,6 +21,7 @@ impl ProcessNoise{
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Increments {
     pub g0: Matrix3<f64>,
     pub dv: Vector3<f64>,
@@ -81,36 +80,85 @@ impl CarState {
 #[cfg(test)]
 mod test {
     use super::*;
-    use::nalgebra::Vector3;
+    use crate::lie::se23::tests::mexp;
     use approx::assert_relative_eq;
-    #[test]
-    fn zoh_composes() {
-        let x0 = SE23::new(
-            so3::exp(&Vector3::new(0.3, -0.7, 1.1)),
-            Vector3::new(2.0,-1.0,0.5),
-            Vector3::new(-3.0,4.0,1.0),
-        );
-        let accel = Vector3::new(1.5,-0.3,-9.0);
+    use nalgebra::{SMatrix,Vector3};
+    use proptest::prelude::*;
 
-        for gyro in [
-            Vector3::zeros(),
-            Vector3::new(1e-12,0.0,0.0),
-            Vector3::new(0.0,0.0,2.0),
-            Vector3::new(0.0, 0.0, 3.33),
-        ] {
-            let imu = IMU { gyro, accel };
-            let dt = 0.06;
-            let scale: f64 = 64.0;
-            let inc = Increments::new(&imu, dt);
-            let many_inc = Increments::new(&imu, dt / scale);
-            let one = propagate_mean(&x0,&inc);
-            let mut many = x0;
-            for _ in 0..64 {
-                many = propagate_mean(&many, &many_inc);
-            }
-            assert_relative_eq!(
-                one.to_matrix(), many.to_matrix(), epsilon=1e-10
+    fn any_pose() -> SE23 { SE23::identity()}
+
+    fn any_imu() -> impl Strategy<Value = IMU> {
+        (
+            prop::array::uniform3(-3.0f64..3.0),
+            prop::array::uniform3(-20.0f64..20.0),
+        )
+            .prop_map(|(w,a)| IMU {
+                gyro: Vector3::from_column_slice(&w),
+                accel: Vector3::from_column_slice(&a),
+            })
+    }
+
+    // CT left-invariant error
+    fn a_matrix(imu: &IMU) -> Matrix9 {
+        let mut a = Matrix9::zeros();
+        let w = -so3::hat(&imu.gyro);
+        a.fixed_view_mut::<3,3>(0,0).copy_from(&w);
+        a.fixed_view_mut::<3,3>(3,3).copy_from(&w);
+        a.fixed_view_mut::<3,3>(6,6).copy_from(&w);
+        a.fixed_view_mut::<3,3>(3,0).copy_from(&(-so3::hat(&imu.accel)));
+        a.fixed_view_mut::<3,3>(6,3).copy_from(&Matrix3::identity());
+        a
+    }
+
+    proptest! {
+        #[test]
+        fn phi_is_mexp(imu in any_imu(), dt in 1e-3f64..1e-1) {
+            let f = transition_matrix(&Increments::new(&imu, dt));
+            assert_relative_eq!(f, mexp(&(a_matrix(&imu) * dt)), epsilon=1e-12);
+        }
+
+        // test group affinity
+        #[test]
+        fn phi_composition(imu in any_imu(), dt in 1e-3f64..1e-1) {
+            let full = transition_matrix(&Increments::new(&imu, dt));
+            let half = transition_matrix(&Increments::new(&imu, dt / 2.0));
+            assert_relative_eq!(full, half * half, epsilon=1e-12);
+        }
+
+        #[test]
+        fn cov_stays_psd(imu in any_imu(), dt in 12e-3f64..2e-2) {
+            let mut s = CarState::from_sigmas(
+                any_pose(),
+                Vector3::new(1e-2,2e-2,3e-2),
+                Vector3::new(0.1, 0.2, 0.3),
+                Vector3::new(1.0,2.0,3.0)
             );
+            let noise = ProcessNoise { sigma_gyro: 1e-3, sigma_accel: 1e-2 };
+            for _ in 0..100 {
+                s.propagate(&imu, &noise, dt);
+                prop_assert!(s.is_psd());
+                prop_assert!(s.cov.iter().all(|x| x.is_finite()));
+            }
+            prop_assert!(s.cov.trace() >= 0.0); // neeeds to be PD
         }
     }
+
+    #[test]
+    fn free_fall_and_stationary() {
+        let dt = 0.1;
+        let x0 = SE23::identity();
+
+        //falling case
+        let imu = IMU { gyro: Vector3::zeros(), accel: Vector3::zeros() };
+        let f = propagate_mean(&x0, &Increments::new(&imu, dt));
+        assert_relative_eq!(f.v ,GRAVITY_VECTOR * dt, epsilon=1e-15);
+        assert_relative_eq!(f.p ,0.5 * GRAVITY_VECTOR * dt.powi(2), epsilon=1e-15);
+
+        //stationary case
+        let imu = IMU { gyro: Vector3::zeros(), accel: -GRAVITY_VECTOR};
+        let s = propagate_mean(&x0, &Increments::new(&imu, dt));
+        assert_relative_eq!(s.v, Vector3::zeros(), epsilon=1e-15);
+        assert_relative_eq!(s.p, Vector3::zeros(), epsilon=1e-15);
+    }
+
 }
